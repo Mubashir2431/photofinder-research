@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Data / runs
+data/
+runs/
+results/*.csv
+results/*.json
+
+# OS
+.DS_Store
+Thumbs.db

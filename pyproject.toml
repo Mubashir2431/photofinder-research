@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photofinder-research"
+version = "0.1.0"
+description = "Reproducible offline face-based photo retrieval benchmark + tooling."
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [{name="Your Name"}]
+dependencies = []
+
+[project.scripts]
+photofinder = "photofinder.cli:app"
+
+[project.optional-dependencies]
+base = [
+  "numpy>=1.23",
+  "opencv-python>=4.8",
+  "tqdm>=4.66",
+  "pyyaml>=6.0",
+  "scikit-learn>=1.3",
+  "pandas>=2.0",
+  "matplotlib>=3.7",
+  "typer>=0.12",
+  "rich>=13.7",
+]
+dlib = ["dlib>=19.24"]
+hnsw = ["hnswlib>=0.8.0"]

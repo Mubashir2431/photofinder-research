@@ -1,0 +1,4 @@
+# Example experiment config (template)
+dataset_root: data/lfw/images
+model: dummy
+out_dir: runs/lfw/dummy
