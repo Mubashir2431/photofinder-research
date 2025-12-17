@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 import os
 import numpy as np
 from .base import FaceEmbedder, FaceEmbedding
@@ -12,7 +12,7 @@ class DlibResnetEmbedder(FaceEmbedder):
         try:
             import dlib  # type: ignore
         except Exception as e:
-            raise RuntimeError("dlib is not installed. `pip install -e '.[dlib]'`") from e
+            raise RuntimeError("dlib is not installed. Install dlib-bin or dlib.") from e
 
         shape_path = os.environ.get("DLIB_SHAPE_PREDICTOR_PATH")
         rec_path = os.environ.get("DLIB_FACE_REC_MODEL_PATH")
@@ -28,13 +28,25 @@ class DlibResnetEmbedder(FaceEmbedder):
         self.face_rec = dlib.face_recognition_model_v1(rec_path)
 
     def embed(self, bgr_image: np.ndarray):
-        # dlib expects RGB
-        rgb = bgr_image[:, :, ::-1]
-        faces = self.detector(rgb)
+        # Convert BGR -> RGB and FORCE contiguous uint8 memory
+        rgb = np.ascontiguousarray(bgr_image[:, :, ::-1], dtype=np.uint8)
+
+        # Upsample=1 improves detection on smaller faces
+        faces = self.detector(rgb, 1)
+
         out = []
         for f in faces:
             shape = self.shape_predictor(rgb, f)
+
+            # Now this call works because rgb is contiguous (no negative strides)
             v = self.face_rec.compute_face_descriptor(rgb, shape)
             emb = np.asarray(v, dtype=np.float32)
-            out.append(FaceEmbedding(embedding=emb, bbox_xyxy=(f.left(), f.top(), f.right(), f.bottom())))
+
+            out.append(
+                FaceEmbedding(
+                    embedding=emb,
+                    bbox_xyxy=(f.left(), f.top(), f.right(), f.bottom()),
+                )
+            )
+
         return out
