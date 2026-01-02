@@ -15,3 +15,10 @@ results/*.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Ignore large binaries and local artifacts
+models/
+*.zip
+*.tgz
+src.zip
+scripts.zip

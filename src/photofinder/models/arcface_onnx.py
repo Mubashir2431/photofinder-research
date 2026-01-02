@@ -1,56 +1,41 @@
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 
 from .base import FaceEmbedder, FaceEmbedding
 
-# ArcFace 112x112 canonical 5-point template
-_ARCFACE_DST = np.array(
-    [
-        [38.2946, 51.6963],
-        [73.5318, 51.5014],
-        [56.0252, 71.7366],
-        [41.5493, 92.3655],
-        [70.7299, 92.2041],
-    ],
-    dtype=np.float32,
-)
-
-def _shape68_to_5pts(shape) -> np.ndarray:
-    pts = np.array(
-        [[shape.part(i).x, shape.part(i).y] for i in range(shape.num_parts)],
-        dtype=np.float32,
-    )
-    left_eye = pts[36:42].mean(axis=0)
-    right_eye = pts[42:48].mean(axis=0)
-    nose = pts[30]
-    mouth_left = pts[48]
-    mouth_right = pts[54]
-    return np.stack([left_eye, right_eye, nose, mouth_left, mouth_right], axis=0)
-
-def _align_112(bgr: np.ndarray, src5: np.ndarray) -> Optional[np.ndarray]:
-    import cv2
-    M, _ = cv2.estimateAffinePartial2D(src5, _ARCFACE_DST, method=cv2.LMEDS)
-    if M is None:
-        return None
-    return cv2.warpAffine(bgr, M, (112, 112), flags=cv2.INTER_LINEAR, borderValue=0)
 
 class ArcFaceOnnxEmbedder(FaceEmbedder):
     """
-    ArcFace (w600k_r50.onnx) via onnxruntime.
-    Uses dlib for detection + 68 landmarks, then aligns using ArcFace 5-point template.
+    ArcFace embedder via ONNXRuntime.
 
-    Env vars:
-      - DLIB_SHAPE_PREDICTOR_PATH (68 landmarks .dat)
-      - ARCFACE_ONNX_PATH         (defaults to models/arcface/buffalo_l/w600k_r50.onnx)
+    Uses dlib for:
+      - face detection
+      - 68-landmark alignment (get_face_chip -> 112x112)
+
+    Requires env vars:
+      - DLIB_SHAPE_PREDICTOR_PATH  (68 landmarks .dat)
+      - ARCFACE_ONNX_PATH          (ArcFace .onnx file)
+
+    Knobs supported:
+      - det_upsample (0/1/2)
+      - arcface_padding (float)
+      - arcface_preproc ("insightface" or "legacy")
     """
+
     name = "arcface_onnx"
     dim = 512
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        det_upsample: int = 1,
+        arcface_padding: float = 0.25,
+        arcface_preproc: str = "insightface",
+    ):
         try:
             import onnxruntime as ort  # type: ignore
         except Exception as e:
@@ -59,64 +44,72 @@ class ArcFaceOnnxEmbedder(FaceEmbedder):
         try:
             import dlib  # type: ignore
         except Exception as e:
-            raise RuntimeError("dlib is required for detection/landmarks.") from e
+            raise RuntimeError("dlib not installed. Install dlib-bin or build dlib.") from e
 
-        # model path
-        model_path = os.environ.get(
-            "ARCFACE_ONNX_PATH",
-            os.path.join("models", "arcface", "buffalo_l", "w600k_r50.onnx"),
-        )
-        if not os.path.exists(model_path):
-            raise RuntimeError(f"ArcFace ONNX not found at: {model_path}")
+        self._ort = ort
+        self.dlib = dlib
+
+        self.det_upsample = int(det_upsample)
+        self.arcface_padding = float(arcface_padding)
+        self.arcface_preproc = str(arcface_preproc).lower()
 
         shape_path = os.environ.get("DLIB_SHAPE_PREDICTOR_PATH")
-        if not shape_path or not os.path.exists(shape_path):
+        if not shape_path:
             raise RuntimeError("Set DLIB_SHAPE_PREDICTOR_PATH to your 68-landmarks .dat file.")
+        if not os.path.exists(shape_path):
+            raise RuntimeError(f"DLIB_SHAPE_PREDICTOR_PATH not found: {shape_path}")
 
-        self.dlib = dlib
+        onnx_path = os.environ.get("ARCFACE_ONNX_PATH")
+        if not onnx_path:
+            raise RuntimeError("Set ARCFACE_ONNX_PATH to your ArcFace .onnx file.")
+        if not os.path.exists(onnx_path):
+            raise RuntimeError(f"ARCFACE_ONNX_PATH not found: {onnx_path}")
+
         self.detector = dlib.get_frontal_face_detector()
         self.shape_predictor = dlib.shape_predictor(shape_path)
 
-        self.session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        self.session = ort.InferenceSession(onnx_path, providers=["CPUExecutionProvider"])
         self.input_name = self.session.get_inputs()[0].name
         self.output_name = self.session.get_outputs()[0].name
 
+    def _preprocess(self, rgb_112: np.ndarray) -> np.ndarray:
+        """
+        ArcFace preprocessing.
+
+        - insightface: (x - 127.5) / 128.0
+        - legacy:     (x - 127.5) / 127.5
+        Output is NCHW float32.
+        """
+        x = rgb_112.astype(np.float32)
+        if self.arcface_preproc == "legacy":
+            x = (x - 127.5) / 127.5
+        else:
+            x = (x - 127.5) / 128.0
+        x = np.transpose(x, (2, 0, 1))  # HWC -> CHW
+        x = np.expand_dims(x, 0)        # CHW -> NCHW
+        return x
+
     def embed(self, bgr_image: np.ndarray) -> List[FaceEmbedding]:
-        import cv2
-
-        bgr = np.ascontiguousarray(bgr_image, dtype=np.uint8)
-        rgb = np.ascontiguousarray(bgr[:, :, ::-1], dtype=np.uint8)
-
-        rects = self.detector(rgb, 1)  # upsample=1
+        rgb = np.ascontiguousarray(bgr_image[:, :, ::-1], dtype=np.uint8)
+        faces = self.detector(rgb, self.det_upsample)
 
         out: List[FaceEmbedding] = []
-        for r in rects:
-            shape = self.shape_predictor(rgb, r)
-            src5 = _shape68_to_5pts(shape)
+        for f in faces:
+            shape = self.shape_predictor(rgb, f)
 
-            aligned = _align_112(bgr, src5)
-            if aligned is None:
-                continue
+            chip = self.dlib.get_face_chip(
+                rgb, shape, size=112, padding=float(self.arcface_padding)
+            )
+            chip = np.ascontiguousarray(chip, dtype=np.uint8)
 
-            # Matches InsightFace default: (img - 127.5) / 127.5, swapRB=True :contentReference[oaicite:2]{index=2}
-            blob = cv2.dnn.blobFromImage(
-                aligned,
-                scalefactor=1.0 / 127.5,
-                size=(112, 112),
-                mean=(127.5, 127.5, 127.5),
-                swapRB=True,
-            ).astype(np.float32)
-
-            vec = self.session.run([self.output_name], {self.input_name: blob})[0][0].astype(np.float32)
-
-            # L2 normalize
-            vec = vec / (np.linalg.norm(vec) + 1e-12)
+            inp = self._preprocess(chip)
+            emb = self.session.run([self.output_name], {self.input_name: inp})[0]
+            emb = np.asarray(emb, dtype=np.float32).reshape(-1)
 
             out.append(
                 FaceEmbedding(
-                    embedding=vec,
-                    bbox_xyxy=(r.left(), r.top(), r.right(), r.bottom()),
+                    embedding=emb,
+                    bbox_xyxy=(int(f.left()), int(f.top()), int(f.right()), int(f.bottom())),
                 )
             )
-
         return out

@@ -1,10 +1,11 @@
 from __future__ import annotations
-from collections import defaultdict
+
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from collections import defaultdict
+from typing import Any, Dict, List, Optional, Sequence
+
 import numpy as np
 
-from photofinder.indexing.linear import l2_search
 
 @dataclass
 class RetrievalMetrics:
@@ -14,43 +15,119 @@ class RetrievalMetrics:
     mrr: float
     n_queries: int
 
-def eval_retrieval(emb: np.ndarray, meta: List[Dict], top_k: int = 10) -> RetrievalMetrics:
-    # Build label -> indices
-    label_to_idx = defaultdict(list)
+
+def _l2_normalize_rows(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float32)
+    denom = np.linalg.norm(x, axis=1, keepdims=True) + 1e-12
+    return x / denom
+
+
+def _group_by_label(meta: Sequence[Any]) -> Dict[str, List[int]]:
+    groups: Dict[str, List[int]] = defaultdict(list)
     for i, m in enumerate(meta):
-        label_to_idx[m["label"]].append(i)
+        if isinstance(m, dict) and "label" in m:
+            groups[str(m["label"])].append(i)
+    return groups
 
-    # Only evaluate queries where at least 2 images exist for the identity
-    valid_queries = [i for i, m in enumerate(meta) if len(label_to_idx[m["label"]]) >= 2]
-    if not valid_queries:
-        raise ValueError("No identities with >=2 images. Retrieval eval needs at least 2 per label.")
 
-    r1 = r5 = r10 = 0
-    mrr_sum = 0.0
+def eval_retrieval(
+    emb: np.ndarray,
+    meta: Sequence[Any],
+    *,
+    top_k: int = 10,
+    metric: str = "cosine",                 # cosine | l2
+    ann_index: Optional[object] = None,     # a loaded FAISS index
+    ann_search_k: int = 200,                # ANN candidate depth
+    rerank: bool = True,                    # rerank ANN candidates with exact metric
+) -> RetrievalMetrics:
+    """
+    Evaluate retrieval (rank1/recall@k/MRR) on identities with >=2 images.
+    """
+    metric = metric.lower()
+    if metric not in ("cosine", "l2"):
+        raise ValueError("metric must be 'cosine' or 'l2'")
 
-    for qi in valid_queries:
-        q = emb[qi]
-        idx, _dist = l2_search(q, emb, top_k=top_k + 1)  # +1 to allow self-filter
-        idx = [int(j) for j in idx if int(j) != qi][:top_k]
+    E_raw = np.asarray(emb, dtype=np.float32)
+    groups = _group_by_label(meta)
 
-        true_label = meta[qi]["label"]
-        hits = [k for k, j in enumerate(idx, start=1) if meta[j]["label"] == true_label]
+    query_indices: List[int] = []
+    positives_by_q: Dict[int, set[int]] = {}
 
-        if hits:
-            first = hits[0]
-            mrr_sum += 1.0 / first
-            if first == 1:
-                r1 += 1
-            if first <= 5:
-                r5 += 1
-            if first <= 10:
-                r10 += 1
+    for _, idxs in groups.items():
+        if len(idxs) < 2:
+            continue
+        for q in idxs:
+            query_indices.append(q)
+            positives_by_q[q] = set(idxs) - {q}
 
-    n = len(valid_queries)
+    if not query_indices:
+        return RetrievalMetrics(0.0, 0.0, 0.0, 0.0, 0)
+
+    use_ann = ann_index is not None
+    if use_ann:
+        from photofinder.indexing.ann_faiss import search_index as faiss_search
+
+    # Prepare embeddings for exact scoring
+    if metric == "cosine":
+        E = _l2_normalize_rows(E_raw)
+    else:
+        E = E_raw
+
+    hits_rank1 = hits_at5 = hits_at10 = 0
+    rr_sum = 0.0
+
+    k_fetch = max(int(ann_search_k), int(top_k) + 50)
+
+    for q_idx in query_indices:
+        pos = positives_by_q[q_idx]
+        q = E[q_idx]
+
+        if use_ann:
+            _d, idxs = faiss_search(ann_index, q, k_fetch)
+            cand = [int(i) for i in idxs.tolist() if int(i) >= 0 and int(i) != q_idx]
+
+            if rerank and cand:
+                cand_arr = np.asarray(cand, dtype=np.int64)
+                if metric == "cosine":
+                    scores = (E[cand_arr] @ q).astype(np.float32)
+                    order = np.argsort(-scores)
+                    cand = cand_arr[order].tolist()
+                else:
+                    diff = E[cand_arr] - q.reshape(1, -1)
+                    dist2 = np.sum(diff * diff, axis=1).astype(np.float32)
+                    order = np.argsort(dist2)
+                    cand = cand_arr[order].tolist()
+
+            idxs_ranked = cand
+        else:
+            if metric == "cosine":
+                scores_all = E @ q
+                idxs_ranked = [int(i) for i in np.argsort(-scores_all) if int(i) != q_idx]
+            else:
+                diff = E - q.reshape(1, -1)
+                dist2 = np.sum(diff * diff, axis=1)
+                idxs_ranked = [int(i) for i in np.argsort(dist2) if int(i) != q_idx]
+
+        first_rank = None
+        for r, i in enumerate(idxs_ranked[: max(k_fetch, top_k)], start=1):
+            if i in pos:
+                first_rank = r
+                break
+
+        if first_rank is not None:
+            rr_sum += 1.0 / first_rank
+            if first_rank == 1:
+                hits_rank1 += 1
+            if first_rank <= 5:
+                hits_at5 += 1
+            if first_rank <= 10:
+                hits_at10 += 1
+
+    n = len(query_indices)
     return RetrievalMetrics(
-        rank1=r1 / n,
-        recall_at_5=r5 / n,
-        recall_at_10=r10 / n,
-        mrr=mrr_sum / n,
+        rank1=hits_rank1 / n,
+        recall_at_5=hits_at5 / n,
+        recall_at_10=hits_at10 / n,
+        mrr=rr_sum / n,
         n_queries=n,
     )
