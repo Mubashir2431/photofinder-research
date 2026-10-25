@@ -1,0 +1,20 @@
+{
+  "model": "mobilefacenet_onnx",
+  "rank1": 0.9884433962264151,
+  "recall_at_5": 0.9933962264150943,
+  "recall_at_10": 0.9943396226415094,
+  "mrr": 0.9906943768983093,
+  "n_queries": 4240,
+  "n_images": 4261,
+  "n_embeddings": 4244,
+  "no_face_images": 17,
+  "dim": 512,
+  "index_seconds": 65.69110631942749,
+  "images_per_s": 64.86418388633305,
+  "seconds_per_image": 0.015416828518992605,
+  "wall_seconds_incl_model_load": 66.14449715614319,
+  "dataset": "lfw_sub3",
+  "cpu": "12th Gen Intel(R) Core(TM) i5-1235U",
+  "python": "3.12.4",
+  "timestamp": "2026-10-24T23:57:16"
+}

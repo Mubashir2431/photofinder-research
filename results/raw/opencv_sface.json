@@ -1,0 +1,20 @@
+{
+  "model": "opencv_sface",
+  "rank1": 0.9851904090267983,
+  "recall_at_5": 0.9915373765867419,
+  "recall_at_10": 0.9920075223319229,
+  "mrr": 0.987916380744301,
+  "n_queries": 4254,
+  "n_images": 4261,
+  "n_embeddings": 4255,
+  "no_face_images": 6,
+  "dim": 128,
+  "index_seconds": 131.42089748382568,
+  "images_per_s": 32.422545284507834,
+  "seconds_per_image": 0.030842735856330836,
+  "wall_seconds_incl_model_load": 131.66718864440918,
+  "dataset": "lfw_sub3",
+  "cpu": "12th Gen Intel(R) Core(TM) i5-1235U",
+  "python": "3.12.4",
+  "timestamp": "2026-10-24T23:59:33"
+}

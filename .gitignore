@@ -9,8 +9,7 @@ build/
 # Data / runs
 data/
 runs/
-results/*.csv
-results/*.json
+# results/model_comparison.* are committed on purpose
 
 # OS
 .DS_Store

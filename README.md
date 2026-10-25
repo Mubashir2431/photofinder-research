@@ -179,6 +179,63 @@ Sweep-level summaries:
 
 ---
 
+## Results: model comparison (measured, CPU only)
+
+Protocol: LFW funneled, `scripts/make_lfw_subset.py --people 0 --per-person 3` (all 1,680 identities with >=2 images,
+first 3 images each = **4,261 images**). One face per image (`largest`), L2-normalised embeddings, **exact brute-force
+cosine** retrieval, every image with at least one same-identity image is a query (leave-one-out against the rest of the gallery).
+Rank-1 / Recall@5 / Recall@10 / MRR as in `src/photofinder/eval/retrieval.py`. Models run one at a time, nothing else heavy running.
+
+**Throughput = images / wall-clock seconds of the indexing loop**: JPEG decode + face detection + alignment + embedding +
+normalisation, batch size 1, per image, in a single Python process. It excludes model loading and the retrieval evaluation.
+Hardware: Intel Core i5-1235U (10 cores / 12 threads), Windows 11, Python 3.12.4, onnxruntime 1.31 (CPU), OpenCV 5.0, dlib 20.0.1.
+
+Full protocol (4,261 images, 4,240-4,254 queries per model):
+
+| Model | Rank-1 | Recall@5 | Recall@10 | MRR | images/s |
+|---|---|---|---|---|---|
+| dlib ResNet v1 | 93.49% | 97.90% | 98.66% | 0.9547 | 2.85 |
+| OpenCV SFace (YuNet detector) | 98.52% | 99.15% | 99.20% | 0.9879 | 32.4 |
+| MobileFaceNet (w600k_mbf, YuNet detector) | 98.84% | 99.34% | 99.43% | 0.9907 | 64.9 |
+| ArcFace R100 (glintr100) | not run on the full set (about 1.3 s/image here, ~90 min) | | | | |
+
+MobileFaceNet vs dlib on the full protocol: +5.35 points Rank-1, **22.8x** throughput (64.9 / 2.85).
+
+Reduced protocol so all four models fit (first 300 identities of the same subset, 761 images, 756-761 queries;
+`results/subset300/`, chart `results/model_comparison.png`):
+
+| Model | Rank-1 | Recall@5 | Recall@10 | MRR | images/s |
+|---|---|---|---|---|---|
+| dlib ResNet v1 | 96.83% | 99.34% | 99.47% | 0.9785 | 2.86 |
+| ArcFace R100 (glintr100, dlib 5-pt chip alignment) | 95.91% | 98.55% | 98.68% | 0.9714 | 0.73 |
+| OpenCV SFace | 99.34% | 99.47% | 99.61% | 0.9940 | 31.0 |
+| MobileFaceNet | 99.07% | 99.21% | 99.21% | 0.9914 | 49.7 |
+
+![model comparison](results/model_comparison.png)
+
+Notes:
+* Small samples: on 761 images one query is ~0.13 points, so SFace vs MobileFaceNet on the reduced set is a tie.
+* ArcFace ranks last here; this reflects this repo's detector/alignment pipeline and preprocessing, not necessarily the model's ceiling.
+* Throughput varies by a few percent run to run (MobileFaceNet measured 64.9 img/s on the full set, 49.7 on the reduced one).
+  Earlier numbers measured while other jobs shared the CPU (e.g. 0.33 s/image for MobileFaceNet) are not valid.
+* Raw files: `results/model_comparison.{csv,json}` (full), `results/subset300/model_comparison.{csv,json}`, per-model `results/**/raw/*.json`.
+* Reproduce: `python scripts/model_comparison.py --dataset <subset> --out-root runs/cmp --models mobilefacenet_onnx`, then `--collect`;
+  model paths via env vars (`ARCFACE_ONNX_PATH`, `MOBILEFACENET_ONNX_PATH`, `OPENCV_YUNET_PATH`, `OPENCV_SFACE_PATH`, `DLIB_*`).
+
+---
+
+## Tests
+
+```bash
+pip install -e ".[base,faiss,test]"
+pytest -q
+```
+
+26 tests (no model downloads): retrieval metrics on hand-computed toy cases, exact vs FAISS flat/HNSW parity on random vectors,
+sweep-grid and config parsing. They run in CI on Python 3.11 and 3.12.
+
+---
+
 ## Git hygiene
 
 ### Recommended `.gitignore`
@@ -195,8 +252,3 @@ runs/
 ## License
 
 MIT (template). Replace if needed.
-
-```
-::contentReference[oaicite:0]{index=0}
-```
-

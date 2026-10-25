@@ -1,0 +1,20 @@
+{
+  "model": "dlib_resnet_v1",
+  "rank1": 0.9683377308707124,
+  "recall_at_5": 0.9934036939313984,
+  "recall_at_10": 0.9947229551451188,
+  "mrr": 0.9785288725294833,
+  "n_queries": 758,
+  "n_images": 761,
+  "n_embeddings": 758,
+  "no_face_images": 3,
+  "dim": 128,
+  "index_seconds": 265.64302682876587,
+  "images_per_s": 2.8647467584027435,
+  "seconds_per_image": 0.34907099451874624,
+  "wall_seconds_incl_model_load": 266.9981782436371,
+  "dataset": "lfw_sub3_first300",
+  "cpu": "12th Gen Intel(R) Core(TM) i5-1235U",
+  "python": "3.12.4",
+  "timestamp": "2026-10-25T00:49:31"
+}
