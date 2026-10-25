@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Reproducible offline face-based photo retrieval benchmark + tooling."
 readme = "README.md"
 requires-python = ">=3.9"
-authors = [{name="Your Name"}]
+authors = [{name = "Mubashir Panjwani", email = "mp3887@drexel.edu"}]
 dependencies = []
 
 [project.scripts]
@@ -28,3 +28,6 @@ base = [
 ]
 dlib = ["dlib>=19.24"]
 hnsw = ["hnswlib>=0.8.0"]
+faiss = ["faiss-cpu>=1.7"]
+onnx = ["onnxruntime>=1.16"]
+test = ["pytest>=7"]

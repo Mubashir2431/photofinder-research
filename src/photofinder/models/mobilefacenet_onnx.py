@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -25,10 +26,16 @@ def _repo_root() -> Path:
 
 
 def _default_mbf_path() -> Path:
+    env = os.environ.get("MOBILEFACENET_ONNX_PATH")
+    if env:
+        return Path(env)
     return _repo_root() / "models" / "insightface" / "buffalo_sc" / "w600k_mbf.onnx"
 
 
 def _default_yunet_path() -> Path:
+    env = os.environ.get("OPENCV_YUNET_PATH")
+    if env:
+        return Path(env)
     return _repo_root() / "models" / "opencv" / "yunet.onnx"
 
 

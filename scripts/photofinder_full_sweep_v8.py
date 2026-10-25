@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""
+r"""
 PhotoFinder full sweep runner (v8)
 
 What this does
@@ -383,7 +383,8 @@ def run_index(dataset: str, model: str, out_dir: Path, idx_cfg: IndexCfg, force:
 
 def run_eval_bruteforce(index_npz: Path, out_dir: Path, top_k: int, force: bool, dry_run: bool) -> Tuple[float, Optional[Dict[str, Any]]]:
     ensure_dir(out_dir)
-    m_path = out_dir / "metrics.json"
+    # `photofinder eval-retrieval` writes metrics_retrieval_bruteforce.json (not metrics.json).
+    m_path = out_dir / "metrics_retrieval_bruteforce.json"
     if m_path.exists() and not force:
         print(f"  ✓ bf metrics exists, skipping: {m_path}")
         return 0.0, load_json(m_path)
@@ -420,7 +421,8 @@ def run_build_ann(ann_dir: Path, idx_npz: Path, ann_cfg: AnnCfg, force: bool, dr
 
 def run_eval_ann(ann_dir: Path, idx_npz: Path, ann_cfg: AnnCfg, top_k: int, force: bool, dry_run: bool) -> Tuple[float, Optional[Dict[str, Any]]]:
     ensure_dir(ann_dir)
-    m_path = ann_dir / "metrics.json"
+    # `photofinder eval-retrieval --backend ann` writes metrics_retrieval_ann.json.
+    m_path = ann_dir / "metrics_retrieval_ann.json"
     if m_path.exists() and not force:
         print(f"  ✓ ann metrics exists, skipping: {m_path}")
         return 0.0, load_json(m_path)
