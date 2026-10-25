@@ -16,7 +16,7 @@ runs/
 Thumbs.db
 
 # Ignore large binaries and local artifacts
-models/
+/models/
 *.zip
 *.tgz
 src.zip
